@@ -28,7 +28,7 @@ jobs:
     - name: Checking out
       uses: actions/checkout@v4
     - name: Building
-      run: mkdir build && cd build && cmake .. && make
+      run: cd current && mkdir build && cd build && cmake .. && make
       
   execution:
     name: Report
