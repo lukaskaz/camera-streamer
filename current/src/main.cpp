@@ -3,7 +3,6 @@
 #include <ifaddrs.h>
 
 #include <lccv.hpp>
-
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -105,61 +104,28 @@ int main(int argc, char* argv[])
          {
              return;
          }
-/*
-         //cv::VideoCapture cap(args["videoCapNum"]);
-         cv::VideoCapture cap(cv::CAP_V4L2);
-         if (!cap.isOpened())
-         {
-             std::cerr << "VideoCapture id: " << args["videoCapNum"]
-                       << " not opened!\n";
-             exit(EXIT_FAILURE);
-         }
 
          std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY,
                                     args["videoQuality"]};
-         cap.set(cv::CAP_PROP_FRAME_WIDTH, args["videoWidth"]);
-         cap.set(cv::CAP_PROP_FRAME_HEIGHT, args["videoHeight"]);
-         cap.set(cv::CAP_PROP_FPS, args["videoFps"]);
-         cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-         // cap.set(cv::CAP_PROP_AUTOFOCUS, true);
-         // cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P',
-         // 'G'));
-         cap.set(cv::CAP_PROP_FOURCC,
-                 cv::VideoWriter::fourcc('R', 'G', 'B', '3'));
-
-         int codecRaw = static_cast<int>(cap.get(cv::CAP_PROP_FOURCC));
-         char codec[] = {(char)(codecRaw & 0xFF),
-                         (char)((codecRaw & 0xFF00) >> 8),
-                         (char)((codecRaw & 0xFF0000) >> 16),
-                         (char)((codecRaw & 0xFF000000) >> 24), 0};
-         std::cout << "Streaming camera: " << args["videoCapNum"] << " ["
-                   << cap.get(cv::CAP_PROP_FRAME_WIDTH) << "x"
-                   << cap.get(cv::CAP_PROP_FRAME_HEIGHT)
-                   << "] w/ quality: " << args["videoQuality"]
-                   << " and FPS: " << cap.get(cv::CAP_PROP_FPS) << std::endl;
-         std::cout << "Codec: " << codec
-                   << ", buffer size: " << cap.get(cv::CAP_PROP_BUFFERSIZE)
-                   << std::endl;
-*/
-
-
-         std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY,
-                                    args["videoQuality"]};
-	 lccv::PiCamera cam;
-	 cam.options->camera = args["videoCamNum"];
-	 cam.options->video_width = args["videoWidth"];
-	 cam.options->video_height = args["videoHeight"];
-	 cam.options->framerate = args["videoFps"];
-	 cam.options->verbose = false;
-	 cam.startVideo();
+         lccv::PiCamera cam;
+         cam.options->camera = args["videoCamNum"];
+         cam.options->video_width = args["videoWidth"];
+         cam.options->video_height = args["videoHeight"];
+         cam.options->framerate = args["videoFps"];
+         cam.options->verbose = false;
+         cam.startVideo();
 
          cv::Mat frame;
          std::vector<uchar> buffer;
 
          while (true)
          {
-             //cap.read(frame);
-	     cam.getVideoFrame(frame, 1000);
+             if (!cam.getVideoFrame(frame, 100))
+             {
+                 printLog("streamer", "Cannot get frame, skipping");
+                 continue;
+             }
+
              cv::imencode(".jpg", frame, buffer, params);
              std::string image(buffer.begin(), buffer.end());
 
@@ -180,9 +146,10 @@ int main(int argc, char* argv[])
                "    <body>"
                "        <h1>Camera streaming</h1>"
                "        <img src='http://" +
-                   ip + ":" + std::to_string(port) +
-                   "/img'/ width='" + std::to_string(args["videoWidth"]) + 
-		   "' height='" + std::to_string(args["videoHeight"]) + "'>"
+                   ip + ":" + std::to_string(port) + "/img'/ width='" +
+                   std::to_string(args["videoWidth"]) + "' height='" +
+                   std::to_string(args["videoHeight"]) +
+                   "'>"
                    "    </body>"
                    "</html>";
     });
