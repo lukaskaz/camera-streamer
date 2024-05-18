@@ -33,9 +33,9 @@ jobs:
         # sudo apt install libcamera-dev
         sudo apt install build-essential meson ninja-build libyaml-dev python3-yaml python3-ply python3-jinja2 libssl-dev openssl git
         git clone https://git.libcamera.org/libcamera/libcamera.git
-        cd libcamera
+        cd ~/libcamera
         meson build && sudo ninja -C build install
-        cd current
+        cd ~/current
         mkdir build && cd build && cmake .. && make
       
   execution:
