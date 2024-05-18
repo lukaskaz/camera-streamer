@@ -29,14 +29,16 @@ jobs:
       uses: actions/checkout@v4
     - name: Building
       run: |
-        sudo apt install libopencv-dev
+        echo $(pwd)
+        echo $HOME
+        #sudo apt install libopencv-dev
         # sudo apt install libcamera-dev
-        sudo apt install build-essential meson ninja-build libyaml-dev python3-yaml python3-ply python3-jinja2 libssl-dev openssl git
-        git clone https://git.libcamera.org/libcamera/libcamera.git
-        cd ~/libcamera
-        meson build && sudo ninja -C build install
-        cd ~/current
-        mkdir build && cd build && cmake .. && make
+        #sudo apt install build-essential meson ninja-build libyaml-dev python3-yaml python3-ply python3-jinja2 libssl-dev openssl git
+        #git clone https://git.libcamera.org/libcamera/libcamera.git
+        #cd ~/libcamera
+        #meson build && sudo ninja -C build install
+        #cd ~/current
+        #mkdir build && cd build && cmake .. && make
       
   execution:
     name: Report
