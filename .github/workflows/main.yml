@@ -30,6 +30,7 @@ jobs:
     - name: Building
       run: |
         sudo apt install libopencv-dev
+        sudo apt install libcamera-dev
         cd current
         mkdir build && cd build && cmake .. && make
       
