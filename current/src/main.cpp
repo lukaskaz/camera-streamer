@@ -2,6 +2,7 @@
 
 #include <ifaddrs.h>
 
+#include <boost/program_options.hpp>
 #include <lccv.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -11,13 +12,30 @@
 #include <thread>
 #include <unordered_map>
 
-constexpr bool logsEnabled = false;
-
-void printLog(const std::string& id, const std::string& msg)
+enum LOGLEVEL
 {
-    if constexpr (logsEnabled)
+    ERROR = 0,
+    WARN,
+    INFO,
+    DEBUG
+};
+
+constexpr LOGLEVEL usedLogLevel = LOGLEVEL::INFO;
+
+template <typename T>
+void printLog(LOGLEVEL lvl, const std::string& id, const T& msg)
+{
+    static const std::unordered_map<int, std::string> logToName = {
+        {LOGLEVEL::ERROR, "ERR"},
+        {LOGLEVEL::WARN, "WARN"},
+        {LOGLEVEL::INFO, "INFO"},
+        {LOGLEVEL::DEBUG, "DBG"},
+    };
+
+    if (usedLogLevel >= lvl)
     {
-        std::cout << "[" << id << "] " << msg << std::endl;
+        std::cerr << "[" << logToName.at(lvl) << ":" << id << "] " << msg
+                  << std::endl;
     }
 }
 
@@ -70,25 +88,55 @@ int main(int argc, char* argv[])
         {"videoCamNum", 0}, {"videoWidth", 640},  {"videoHeight", 480},
         {"videoFps", 60},   {"videoQuality", 80}, {"streamPort", 8001},
     };
-    int& port = args["streamPort"];
 
-    if (argc > 1)
+    boost::program_options::options_description desc("Allowed options");
+    desc.add_options()("help", "produce help message")(
+        "logs", boost::program_options::value<int>(), "enable debug logs")(
+        "port", boost::program_options::value<int>(), "set streaming port")(
+        "lccv", "use opencv support for new libcamera stack");
+
+    boost::program_options::variables_map vm;
+    boost::program_options::store(
+        boost::program_options::parse_command_line(argc, argv, desc), vm);
+    boost::program_options::notify(vm);
+
+    if (vm.contains("help"))
     {
-        std::string arg = argv[1];
-        if (std::find_if(arg.begin(), arg.end(), [](unsigned char c) {
-                return !std::isdigit(c);
-            }) == arg.end())
-        {
-            port = std::stoi(arg);
-        }
+        printLog(LOGLEVEL::INFO, "streamer", desc);
+        return 0;
+    }
+
+    if (vm.contains("logs"))
+    {
+        printLog(LOGLEVEL::DEBUG, "streamer",
+                 "Set logging level: " + vm.at("logs").as<int>());
+    }
+
+    int& port = args["streamPort"];
+    if (vm.contains("port"))
+    {
+        port = vm.at("port").as<int>();
+        printLog(LOGLEVEL::DEBUG, "streamer", "Set streaming port: " + port);
+    }
+
+    if (vm.contains("lccv"))
+    {
+        printLog(LOGLEVEL::DEBUG, "streamer", "Using new libcam stack");
     }
 
     http::Server s(port);
     std::string ip = getIPAddress("eth0");
     if (!ip.empty())
     {
-        std::cout << "Reach streaming under url: http://" << ip << ":" << port
-                  << std::endl;
+        printLog(LOGLEVEL::INFO, "streamer",
+                 "Reach streaming under url: http://" + ip + ":" +
+                     std::to_string(port));
+    }
+    else
+    {
+        printLog(LOGLEVEL::ERROR, "streamer",
+                 "Cannot detect ip aaddress for target interface, aborting");
+        return 5;
     }
 
     s.get("/img", [&](auto, auto res) {
@@ -122,7 +170,8 @@ int main(int argc, char* argv[])
          {
              if (!cam.getVideoFrame(frame, 100))
              {
-                 printLog("streamer", "Cannot get frame, skipping");
+                 printLog(LOGLEVEL::WARN, "streamer",
+                          "Cannot get frame, skipping");
                  continue;
              }
 
@@ -139,7 +188,7 @@ int main(int argc, char* argv[])
              }
 
              showFps();
-             printLog("streamer", "New frame was streamed");
+             printLog(LOGLEVEL::DEBUG, "streamer", "New frame was streamed");
          }
      }).get("/", [ip, port, &args](auto, auto res) {
         res >> "<html>"
@@ -160,15 +209,18 @@ int main(int argc, char* argv[])
     }
     catch (std::runtime_error& ex)
     {
-        std::cerr << "[Runtime error] " << ex.what() << std::endl;
+        printLog(LOGLEVEL::ERROR, "streamer",
+                 "[Runtime error] " + std::string(ex.what()));
     }
     catch (std::exception& ex)
     {
-        std::cerr << "[Generic error] " << ex.what() << std::endl;
+        printLog(LOGLEVEL::ERROR, "streamer",
+                 "[Generic error] " + std::string(ex.what()));
     }
     catch (...)
     {
-        std::cerr << "[Undefined error]" << std::endl;
+
+        printLog(LOGLEVEL::ERROR, "streamer", "[Undefined error]");
     }
 
     return 0;

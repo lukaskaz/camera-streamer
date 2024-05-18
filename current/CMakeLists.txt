@@ -23,5 +23,6 @@ add_dependencies(${PROJECT_NAME} liblccv)
 target_link_libraries(${PROJECT_NAME}
     lccv
     Threads::Threads
+    ${Boost_LIBRARIES}
     ${OpenCV_LIBS}
 )
