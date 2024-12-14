@@ -15,13 +15,15 @@ if(RUN_TESTS)
 endif()
 
 include_directories(inc)
-file(GLOB SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-
 add_dependencies(${PROJECT_NAME} liblccv)
+add_dependencies(${PROJECT_NAME} liblogger)
+
 target_link_libraries(${PROJECT_NAME}
     lccv
+    logger
     Threads::Threads
     ${Boost_LIBRARIES}
     ${OpenCV_LIBS}
