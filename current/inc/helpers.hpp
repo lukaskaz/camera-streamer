@@ -76,4 +76,57 @@ class Observable
     std::unordered_set<std::shared_ptr<Observer<T>>> observers;
 };
 
+template <typename T>
+class Processor
+{
+  public:
+    using Func = std::function<void(T&)>;
+    static std::shared_ptr<Processor<T>> create(const Func& func)
+    {
+        return std::shared_ptr<Processor<T>>(new Processor<T>(func));
+    }
+
+    void operator()(T& param)
+    {
+        func(param);
+    }
+
+  private:
+    Processor(const Func& func) : func{func}
+    {}
+    Func func;
+};
+
+template <typename T>
+class Processable
+{
+  public:
+    void process(T& param)
+    {
+        std::ranges::for_each(processors,
+                              [&param](auto prc) { (*prc)(param); });
+    }
+
+    void subscribe(std::shared_ptr<Processor<T>> prc)
+    {
+        if (!processors.insert(prc).second)
+        {
+            throw std::runtime_error(
+                "Trying to subscribe already existing observer");
+        }
+    }
+
+    void unsubscribe(std::shared_ptr<Processor<T>> prc)
+    {
+        if (!processors.erase(prc))
+        {
+            throw std::runtime_error(
+                "Trying to unsubscribe not existing observer");
+        }
+    }
+
+  private:
+    std::unordered_set<std::shared_ptr<Processor<T>>> processors;
+};
+
 } // namespace streamer

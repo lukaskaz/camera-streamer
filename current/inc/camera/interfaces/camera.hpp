@@ -6,7 +6,9 @@
 
 namespace camera
 {
-class CameraIf : public streamer::Observable<cv::Mat>
+class CameraIf :
+    public streamer::Observable<cv::Mat>,
+    public streamer::Processable<cv::Mat>
 {
   public:
     virtual ~CameraIf() = default;

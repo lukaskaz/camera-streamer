@@ -36,10 +36,15 @@ struct Camera::Handler
         {
             cv::Mat frame;
             if (camera.getVideoFrame(frame, timeoutms))
+            {
+                iface->process(frame);
                 iface->notify(frame);
+            }
             else
+            {
                 log(logging::type::warning,
                     "Cannot get frame within expected timeslot");
+            }
         }
     }
 

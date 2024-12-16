@@ -5,7 +5,9 @@
 #include "log/interfaces/console.hpp"
 
 #include <boost/program_options.hpp>
-#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
+// #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 #include <sstream>
 
@@ -96,7 +98,14 @@ int main(int argc, char* argv[])
 
              static uint32_t clinetnum{1};
              auto fps{streamer::FpsMonitor{clinetnum++}};
-             camera->subscribe(streamer::Observer<cv::Mat>::create(
+             camera->Processable::subscribe(
+                 streamer::Processor<cv::Mat>::create(
+                     [quality, logIf, &module, &res, &fps](auto& frame) {
+                         cv::putText(frame, "#EXAMINED#", cv::Point(10, 30),
+                                     cv::FONT_HERSHEY_DUPLEX, 1.0,
+                                     CV_RGB(0, 0, 255), 2);
+                     }));
+             camera->Observable::subscribe(streamer::Observer<cv::Mat>::create(
                  [quality, logIf, &module, &res, &fps](auto& frame) {
                      std::vector<uchar> buffer;
                      cv::imencode(".jpg", frame, buffer,
