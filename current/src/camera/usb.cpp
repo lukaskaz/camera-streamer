@@ -46,10 +46,12 @@ struct Camera::Handler
     ~Handler()
     {}
 
-    bool getframe(cv::Mat& frame)
-    {
-        return camera.read(frame);
-    }
+    void run()
+    {}
+    // bool getframe(cv::Mat& frame)
+    // {
+    //     return camera.read(frame);
+    // }
 
   private:
     std::string module{"libcamerausb"};
@@ -72,9 +74,9 @@ Camera::Camera(std::shared_ptr<logging::LogIf> logIf,
 
 Camera::~Camera() = default;
 
-bool Camera::getframe(cv::Mat& frame)
+void Camera::run()
 {
-    return handler->getframe(frame);
+    return handler->run();
 }
 
 } // namespace camera::usb

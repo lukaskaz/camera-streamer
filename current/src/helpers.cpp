@@ -37,20 +37,26 @@ std::string getIPAddress(const std::string& iface)
     return ip;
 }
 
-void showFps()
-{
-    static std::chrono::steady_clock::time_point begin =
-        std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point end =
-        std::chrono::steady_clock::now();
-    uint32_t diff_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin)
-            .count();
-    uint32_t fps = diff_ms == 0 ? 0 : 1000 / diff_ms;
+FpsMonitor::FpsMonitor(uint32_t num) :
+    start{std::chrono::steady_clock::now()}, clientnum{num}
+{}
 
-    begin = end;
-    std::cout << "          \r"
-              << "[FPS: " << fps << "] " << std::flush;
+void FpsMonitor::print()
+{
+    auto current = std::chrono::steady_clock::now();
+    uint32_t diffms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(current - start)
+            .count();
+    start = current;
+    uint32_t fps = diffms == 0 ? 0 : 1000 / diffms;
+
+    std::cout << "\r";
+    for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
+        std::cout << "\t\t";
+    std::cout << "          \r";
+    for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
+        std::cout << "\t\t";
+    std::cout << "[FPS_" << clientnum << ": " << fps << "] " << std::flush;
 }
 
 } // namespace streamer

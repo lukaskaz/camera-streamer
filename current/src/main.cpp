@@ -94,34 +94,30 @@ int main(int argc, char* argv[])
                  return;
              }
 
-             cv::Mat frame;
-             std::vector<uchar> buffer;
-             while (true)
-             {
-                 if (!camera->getframe(frame))
-                 {
-                     logIf->log(logging::type::warning, module,
-                                "Cannot get frame, skipping");
-                     continue;
-                 }
+             static uint32_t clinetnum{1};
+             auto fps{streamer::FpsMonitor{clinetnum++}};
+             camera->subscribe(streamer::Observer<cv::Mat>::create(
+                 [quality, logIf, &module, &res, &fps](auto& frame) {
+                     std::vector<uchar> buffer;
+                     cv::imencode(".jpg", frame, buffer,
+                                  {cv::IMWRITE_JPEG_QUALITY, (int32_t)quality});
+                     std::string image(buffer.begin(), buffer.end());
 
-                 cv::imencode(".jpg", frame, buffer,
-                              {cv::IMWRITE_JPEG_QUALITY, (int32_t)quality});
-                 std::string image(buffer.begin(), buffer.end());
+                     if (!res.send_msg("--boundary\r\n"
+                                       "Content-Type: image/jpeg\r\n"
+                                       "Content-Length: " +
+                                       std::to_string(image.size()) +
+                                       "\r\n\r\n" + std::move(image)))
+                     {
+                         throw std::runtime_error(
+                             "Cannot stream image content");
+                     }
 
-                 if (!res.send_msg("--boundary\r\n"
-                                   "Content-Type: image/jpeg\r\n"
-                                   "Content-Length: " +
-                                   std::to_string(image.size()) + "\r\n\r\n" +
-                                   std::move(image)))
-                 {
-                     return;
-                 }
-
-                 streamer::showFps();
-                 logIf->log(logging::type::debug, module,
-                            "New frame was streamed");
-             }
+                     logIf->log(logging::type::debug, module,
+                                "New frame was streamed");
+                     fps.print();
+                 }));
+             camera->run();
          })
         .get("/", [ip, port, width = args["videoWidth"],
                    height = args["videoHeight"]](auto, auto res) {

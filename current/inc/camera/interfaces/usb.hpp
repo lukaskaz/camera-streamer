@@ -14,7 +14,7 @@ class Camera : public CameraIf
 {
   public:
     ~Camera();
-    bool getframe(cv::Mat&) override;
+    void run() override;
 
   private:
     friend class camera::Factory;

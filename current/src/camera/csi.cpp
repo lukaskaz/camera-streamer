@@ -8,8 +8,9 @@ namespace camera::csi
 struct Camera::Handler
 {
   public:
-    Handler(std::shared_ptr<logging::LogIf> logIf,
+    Handler(Camera* iface, std::shared_ptr<logging::LogIf> logIf,
             const std::array<uint32_t, 4>& params) :
+        iface{iface},
         logIf{logIf}
     {
         auto [id, width, heigh, fps] = params;
@@ -25,16 +26,30 @@ struct Camera::Handler
         camera.stopVideo();
     }
 
-    bool getframe(cv::Mat& frame)
+    void run()
     {
-        return camera.getVideoFrame(frame, timeoutms);
+        if (running)
+            while (true)
+                ;
+        running = true;
+        while (true)
+        {
+            cv::Mat frame;
+            if (camera.getVideoFrame(frame, timeoutms))
+                iface->notify(frame);
+            else
+                log(logging::type::warning,
+                    "Cannot get frame within expected timeslot");
+        }
     }
 
   private:
     std::string module{"libcameracsi"};
     lccv::PiCamera camera;
+    Camera* iface;
     std::shared_ptr<logging::LogIf> logIf;
     uint32_t timeoutms{100};
+    std::atomic<bool> running{false};
 
     void log(logging::type type, const std::string& msg) const
     {
@@ -47,14 +62,14 @@ struct Camera::Handler
 
 Camera::Camera(std::shared_ptr<logging::LogIf> logIf,
                const std::array<uint32_t, 4>& params) :
-    handler{std::make_unique<Handler>(logIf, params)}
+    handler{std::make_unique<Handler>(this, logIf, params)}
 {}
 
 Camera::~Camera() = default;
 
-bool Camera::getframe(cv::Mat& frame)
+void Camera::run()
 {
-    return handler->getframe(frame);
+    return handler->run();
 }
 
 } // namespace camera::csi

@@ -1,13 +1,15 @@
 #pragma once
 
+#include "helpers.hpp"
+
 #include <opencv2/core/mat.hpp>
 
 namespace camera
 {
-class CameraIf
+class CameraIf : public streamer::Observable<cv::Mat>
 {
   public:
     virtual ~CameraIf() = default;
-    virtual bool getframe(cv::Mat&) = 0;
+    virtual void run() = 0;
 };
 } // namespace camera
