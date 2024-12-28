@@ -1,21 +1,68 @@
-#include "streaming/server.h"
+#include "server/server.h"
 
-#include "camera/interfaces/csi.hpp"
-#include "helpers.hpp"
+#include "ai/ncs/detectors/person.hpp"
+#include "camera/interfaces/rpi5/csi.hpp"
 #include "log/interfaces/console.hpp"
+#include "streamer/helpers.hpp"
+#include "tts/interfaces/googlecloud.hpp"
+
+#include <sched.h>
 
 #include <boost/program_options.hpp>
 #include <opencv2/highgui.hpp>
-// #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <atomic>
+#include <future>
+#include <iostream>
 #include <sstream>
+
+template <typename T>
+class ActionHandler
+{
+  public:
+    ActionHandler(const std::function<void(const T&)>& act,
+                  const std::function<void()>& prep) :
+        action(act),
+        preparation(prep)
+    {
+        async = std::async(std::launch::async, [this]() {
+            while (true)
+            {
+                std::unique_lock lock(mtx);
+                condvar.wait(lock, [this]() { return isready; });
+                isready = false;
+                lock.unlock();
+                action(value);
+            }
+        });
+    }
+
+    void update(const T& v)
+    {
+        std::lock_guard lock(mtx);
+        preparation();
+        value = v;
+        isready = true;
+        condvar.notify_one();
+        std::cout << "Thread #action: on CPU " << sched_getcpu() << "\n";
+    }
+
+  private:
+    std::function<void(const T&)> action;
+    std::function<void()> preparation;
+    std::future<void> async;
+    std::mutex mtx;
+    std::condition_variable condvar;
+    bool isready{false};
+    T value;
+};
 
 int main(int argc, char* argv[])
 {
     std::unordered_map<std::string, uint32_t> args = {
         {"videoCamNum", 0}, {"videoWidth", 800},  {"videoHeight", 600},
-        {"videoFps", 60},   {"videoQuality", 80}, {"streamPort", 8001},
+        {"videoFps", 30},   {"videoQuality", 80}, {"streamPort", 8001},
     };
     std::string module{"libstreamer"};
     auto loglvl = logging::type::info;
@@ -27,7 +74,10 @@ int main(int argc, char* argv[])
         "enable debug logs")("port,p",
                              boost::program_options::value<uint32_t>(),
                              "set streaming port")(
-        "lccv,l", "use opencv support for new libcamera stack");
+        "model,m", boost::program_options::value<std::string>(),
+        "model xml file path")(
+        "device,d", boost::program_options::value<std::string>(),
+        "device type")("lccv,l", "use opencv support for new libcamera stack");
 
     boost::program_options::variables_map vm;
     boost::program_options::store(
@@ -55,12 +105,27 @@ int main(int argc, char* argv[])
         logIf->log(logging::type::debug, module, "Set streaming port: " + port);
     }
 
+    std::string model;
+    if (vm.contains("model"))
+    {
+        model = vm.at("model").as<std::string>();
+        logIf->log(logging::type::debug, module,
+                   "path of xml model file: " + model);
+    }
+
+    std::string device;
+    if (vm.contains("device"))
+    {
+        device = vm.at("device").as<std::string>();
+        logIf->log(logging::type::debug, module, "device type: " + device);
+    }
+
     if (vm.contains("lccv"))
     {
         logIf->log(logging::type::debug, module, "Using new libcam stack");
     }
 
-    http::Server s(port);
+    http::Server server(port);
     std::string ip = streamer::getIPAddress("eth0");
     if (!ip.empty())
     {
@@ -75,59 +140,127 @@ int main(int argc, char* argv[])
         return 5;
     }
 
+    auto ttsIf = tts::TextToVoiceFactory::create<tts::googlecloud::TextToVoice>(
+        {tts::language::polish, tts::gender::female, 1});
+
+    auto action = ActionHandler<std::string>(
+        [ttsIf](const std::string& text) {
+            std::cout << "Speak: " << text << "\n";
+            if (ttsIf)
+                ttsIf->speak(text);
+        },
+        []() { tts::TextToVoiceIf::kill(); });
+
+    auto detector =
+        ai::ncs::Factory::create<ai::ncs::person::Detector>(model, device);
+
+    detector->Executable::subscribe(
+        ai::Executor<std::vector<ai::ncs::Result>>::create([&](auto& results) {
+            static auto peoplenum = results.size();
+
+            if (results.size() != peoplenum)
+            {
+                std::cout << "\nThread #cam: on CPU " << sched_getcpu() << "\n";
+                peoplenum = results.size();
+                logIf->log(logging::type::info, "executor",
+                           "People I can see is: " + std::to_string(peoplenum));
+                std::string msg;
+                switch (peoplenum)
+                {
+                    case 0:
+                        msg = "Nie widzę człowieków";
+                        break;
+                    case 1:
+                        msg = "Widzę 1 człowieka";
+                        break;
+                    default:
+                        msg = "Widzę " + std::to_string(peoplenum) + " ludzi";
+                        break;
+                }
+                action.update(msg);
+            }
+        }));
+    // personDetection.reshape(ie, 240, 320);
     auto camera = camera::Factory::create<camera::csi::Camera>(
         logIf, {args["videoCamNum"], args["videoWidth"], args["videoHeight"],
                 args["videoFps"]});
+    // personDetection.reshape(ie, 600, 800);
+    //  camera->Processable::subscribe(
+    //      {1, streamer::Processor<cv::Mat>::create([](auto& frame) {
+    //           cv::resize(frame, frame, cv::Size(320, 240));
+    //           cv::putText(frame, "#EXAMINED#", cv::Point(10, 30),
+    //                       cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(0, 0,
+    //                       255), 2);
+    //       })});
 
-    s.get(
-         "/img",
-         [quality = args["videoQuality"], camera, logIf, &module](auto,
-                                                                  auto res) {
-             res.headers.push_back("Connection: close");
-             res.headers.push_back("Max-Age: 0");
-             res.headers.push_back("Expires: 0");
-             res.headers.push_back("Cache-Control: no-cache, private");
-             res.headers.push_back("Pragma: no-cache");
-             res.headers.push_back(
-                 "Content-Type: multipart/x-mixed-replace;boundary=--boundary");
+    camera->Processable::subscribe(
+        {2, camera::Processor<cv::Mat>::create([&detector](auto& frame) {
+             // cv::resize(frame, frame,
+             // cv::Size(320, 240));
+             detector->process(frame);
+         })});
+    camera->start();
 
-             if (!res.send_header())
-             {
-                 return;
-             }
+    server
+        .get("/img",
+             [quality = args["videoQuality"], camera, logIf,
+              &module](auto, auto res) {
+                 res.headers.push_back("Connection: close");
+                 res.headers.push_back("Max-Age: 0");
+                 res.headers.push_back("Expires: 0");
+                 res.headers.push_back("Cache-Control: no-cache, private");
+                 res.headers.push_back("Pragma: no-cache");
+                 res.headers.push_back(
+                     "Content-Type: "
+                     "multipart/x-mixed-replace;boundary=--boundary");
 
-             static uint32_t clinetnum{1};
-             auto fps{streamer::FpsMonitor{clinetnum++}};
-             camera->Processable::subscribe(
-                 streamer::Processor<cv::Mat>::create(
-                     [quality, logIf, &module, &res, &fps](auto& frame) {
-                         cv::putText(frame, "#EXAMINED#", cv::Point(10, 30),
-                                     cv::FONT_HERSHEY_DUPLEX, 1.0,
-                                     CV_RGB(0, 0, 255), 2);
-                     }));
-             camera->Observable::subscribe(streamer::Observer<cv::Mat>::create(
-                 [quality, logIf, &module, &res, &fps](auto& frame) {
-                     std::vector<uchar> buffer;
-                     cv::imencode(".jpg", frame, buffer,
-                                  {cv::IMWRITE_JPEG_QUALITY, (int32_t)quality});
-                     std::string image(buffer.begin(), buffer.end());
+                 if (!res.send_header())
+                 {
+                     return;
+                 }
 
-                     if (!res.send_msg("--boundary\r\n"
-                                       "Content-Type: image/jpeg\r\n"
-                                       "Content-Length: " +
-                                       std::to_string(image.size()) +
-                                       "\r\n\r\n" + std::move(image)))
+                 static uint32_t clinetnum{1};
+                 auto monitor{streamer::TimeMonitor{clinetnum++}};
+                 std::stop_source state;
+                 auto running = state.get_token();
+                 auto streaming =
+                     camera::Observer<cv::Mat>::create([&](auto& frame) {
+                         std::vector<uchar> buffer;
+                         cv::imencode(
+                             ".jpg", frame, buffer,
+                             {cv::IMWRITE_JPEG_QUALITY, (int32_t)quality});
+                         std::string image(buffer.begin(), buffer.end());
+
+                         if (!res.send_msg("--boundary\r\n"
+                                           "Content-Type: image/jpeg\r\n"
+                                           "Content-Length: " +
+                                           std::to_string(image.size()) +
+                                           "\r\n\r\n" + std::move(image)))
+                         {
+                             logIf->log(
+                                 logging::type::warning, module,
+                                 "Cannot stream image content, closing http "
+                                 "thread");
+                             state.request_stop();
+                             return;
+                         }
+
+                         logIf->log(logging::type::debug, module,
+                                    "New frame was streamed");
+                         monitor.printfps();
+                     });
+
+                 camera->Observable::subscribe(streaming);
+                 while (true)
+                 {
+                     if (running.stop_requested())
                      {
-                         throw std::runtime_error(
-                             "Cannot stream image content");
+                         camera->Observable::unsubscribe(streaming);
+                         break;
                      }
-
-                     logIf->log(logging::type::debug, module,
-                                "New frame was streamed");
-                     fps.print();
-                 }));
-             camera->run();
-         })
+                     usleep(100 * 1000);
+                 }
+             })
         .get("/", [ip, port, width = args["videoWidth"],
                    height = args["videoHeight"]](auto, auto res) {
             res >> "<html>"
@@ -144,7 +277,8 @@ int main(int argc, char* argv[])
 
     try
     {
-        s.listen();
+        server.listen();
+        camera->stop();
     }
     catch (std::runtime_error& ex)
     {

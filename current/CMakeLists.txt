@@ -18,13 +18,18 @@ include_directories(inc)
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-add_dependencies(${PROJECT_NAME} liblccv)
+add_dependencies(${PROJECT_NAME} libcamera)
 add_dependencies(${PROJECT_NAME} liblogger)
+add_dependencies(${PROJECT_NAME} libtts)
+add_dependencies(${PROJECT_NAME} libshellcmd)
 
 target_link_libraries(${PROJECT_NAME}
-    lccv
+    camera
     logger
+    tts
+    shellcmd
     Threads::Threads
     ${Boost_LIBRARIES}
     ${OpenCV_LIBS}
+    ${InferenceEngine_LIBRARIES}
 )

@@ -3,21 +3,23 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace streamer
 {
 
 std::string getIPAddress(const std::string&);
 
-class FpsMonitor
+class TimeMonitor
 {
   public:
-    explicit FpsMonitor(uint32_t);
-    void print();
+    explicit TimeMonitor(uint32_t);
+    void printtime();
+    void printfps();
 
   private:
     std::chrono::steady_clock::time_point start;
@@ -51,6 +53,7 @@ class Observable
   public:
     void notify(const T& param)
     {
+        cleanup();
         std::ranges::for_each(observers, [&param](auto obs) { (*obs)(param); });
     }
 
@@ -65,15 +68,35 @@ class Observable
 
     void unsubscribe(std::shared_ptr<Observer<T>> obs)
     {
-        if (!observers.erase(obs))
+        if (!observers.contains(obs))
         {
             throw std::runtime_error(
                 "Trying to unsubscribe not existing observer");
         }
+        if (!unsubscribed.insert(obs).second)
+        {
+            throw std::runtime_error(
+                "Trying to unsubscribe already added observer");
+        }
+    }
+
+    bool empty() const
+    {
+        return observers.empty();
     }
 
   private:
-    std::unordered_set<std::shared_ptr<Observer<T>>> observers;
+    std::unordered_set<std::shared_ptr<Observer<T>>> observers, unsubscribed;
+
+    void cleanup()
+    {
+        if (!unsubscribed.empty())
+        {
+            std::ranges::for_each(unsubscribed,
+                                  [this](auto obs) { observers.erase(obs); });
+            unsubscribed.clear();
+        }
+    }
 };
 
 template <typename T>
@@ -101,32 +124,55 @@ template <typename T>
 class Processable
 {
   public:
+    using processordata = std::pair<uint32_t, std::shared_ptr<Processor<T>>>;
     void process(T& param)
     {
+        cleanup();
         std::ranges::for_each(processors,
-                              [&param](auto prc) { (*prc)(param); });
+                              [&param](auto prc) { (*prc.second)(param); });
     }
 
-    void subscribe(std::shared_ptr<Processor<T>> prc)
+    void subscribe(const processordata& data)
     {
-        if (!processors.insert(prc).second)
+        if (!processors.emplace(data).second)
         {
             throw std::runtime_error(
-                "Trying to subscribe already existing observer");
+                "Trying to subscribe already existing processor");
         }
     }
 
-    void unsubscribe(std::shared_ptr<Processor<T>> prc)
+    void unsubscribe(const processordata& data)
     {
-        if (!processors.erase(prc))
+        if (!processors.contains(data))
         {
             throw std::runtime_error(
-                "Trying to unsubscribe not existing observer");
+                "Trying to unsubscribe not existing processor");
         }
+        if (!unsubscribed.insert(data).second)
+        {
+            throw std::runtime_error(
+                "Trying to unsubscribe already added processor");
+        }
+    }
+
+    bool empty() const
+    {
+        return processors.empty();
     }
 
   private:
-    std::unordered_set<std::shared_ptr<Processor<T>>> processors;
+    std::map<uint32_t, std::shared_ptr<Processor<T>>> processors, unsubscribed;
+
+    void cleanup()
+    {
+        if (!unsubscribed.empty())
+        {
+            std::ranges::for_each(unsubscribed, [this](auto prc) {
+                processors.erase(prc.first);
+            });
+            unsubscribed.clear();
+        }
+    }
 };
 
 } // namespace streamer

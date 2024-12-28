@@ -1,4 +1,4 @@
-#include "helpers.hpp"
+#include "streamer/helpers.hpp"
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -37,11 +37,28 @@ std::string getIPAddress(const std::string& iface)
     return ip;
 }
 
-FpsMonitor::FpsMonitor(uint32_t num) :
+TimeMonitor::TimeMonitor(uint32_t num) :
     start{std::chrono::steady_clock::now()}, clientnum{num}
 {}
 
-void FpsMonitor::print()
+void TimeMonitor::printtime()
+{
+    auto current = std::chrono::steady_clock::now();
+    uint32_t diffms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(current - start)
+            .count();
+    start = current;
+
+    std::cout << "\r";
+    for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+        std::cout << "\t\t";
+    std::cout << "          \r";
+    for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+        std::cout << "\t\t";
+    std::cout << "[TIM_" << clientnum << ": " << diffms << "] " << std::flush;
+}
+
+void TimeMonitor::printfps()
 {
     auto current = std::chrono::steady_clock::now();
     uint32_t diffms =

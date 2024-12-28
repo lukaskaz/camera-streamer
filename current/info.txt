@@ -1,0 +1,2 @@
+./camera-streamer -m ./person-detection-retail-0013.xml -d MYRIAD
+
