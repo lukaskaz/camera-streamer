@@ -1,5 +1,6 @@
 #include "server/server.h"
 
+#include "ai/ncs/detectors/face.hpp"
 #include "ai/ncs/detectors/person.hpp"
 #include "camera/interfaces/rpi5/csi.hpp"
 #include "log/interfaces/console.hpp"
@@ -12,9 +13,11 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <future>
 #include <iostream>
+#include <ranges>
 #include <sstream>
 
 template <typename T>
@@ -74,8 +77,10 @@ int main(int argc, char* argv[])
         "enable debug logs")("port,p",
                              boost::program_options::value<uint32_t>(),
                              "set streaming port")(
-        "model,m", boost::program_options::value<std::string>(),
-        "model xml file path")(
+        "mp", boost::program_options::value<std::string>(),
+        "person detection model xml file path")(
+        "mf", boost::program_options::value<std::string>(),
+        "face detection model xml file path")(
         "device,d", boost::program_options::value<std::string>(),
         "device type")("lccv,l", "use opencv support for new libcamera stack");
 
@@ -105,12 +110,20 @@ int main(int argc, char* argv[])
         logIf->log(logging::type::debug, module, "Set streaming port: " + port);
     }
 
-    std::string model;
-    if (vm.contains("model"))
+    std::string mp;
+    if (vm.contains("mp"))
     {
-        model = vm.at("model").as<std::string>();
+        mp = vm.at("mp").as<std::string>();
         logIf->log(logging::type::debug, module,
-                   "path of xml model file: " + model);
+                   "path of xml person detection model file: " + mp);
+    }
+
+    std::string mf;
+    if (vm.contains("mf"))
+    {
+        mf = vm.at("mf").as<std::string>();
+        logIf->log(logging::type::debug, module,
+                   "path of xml face detection model file: " + mf);
     }
 
     std::string device;
@@ -143,43 +156,58 @@ int main(int argc, char* argv[])
     auto ttsIf = tts::TextToVoiceFactory::create<tts::googlecloud::TextToVoice>(
         {tts::language::polish, tts::gender::female, 1});
 
-    auto action = ActionHandler<std::string>(
-        [ttsIf](const std::string& text) {
-            std::cout << "Speak: " << text << "\n";
+    auto action = ActionHandler<int32_t>(
+        [ttsIf](int32_t peoplenum) {
+            std::string msg;
+            switch (peoplenum)
+            {
+                case 0:
+                    msg = "Nie widzę człowieków";
+                    break;
+                case 1:
+                    msg = "Widzę 1 człowieka";
+                    break;
+                default:
+                    msg = "Widzę " + std::to_string(peoplenum) + " ludzi";
+                    break;
+            }
             if (ttsIf)
-                ttsIf->speak(text);
+            {
+                std::cout << "Speak: " << msg << "\n";
+                ttsIf->speak(msg);
+            }
         },
         []() { tts::TextToVoiceIf::kill(); });
 
-    auto detector =
-        ai::ncs::Factory::create<ai::ncs::person::Detector>(model, device);
+    auto ai = std::make_shared<ai::ncs::ProcessorIf>();
+    auto person =
+        ai::ncs::Factory::create<ai::ncs::person::Detector>(mp, device);
+    auto face = ai::ncs::Factory::create<ai::ncs::face::Detector>(mf, device);
+    ai->setnext(person)->setnext(face);
 
-    detector->Executable::subscribe(
+    person->Executable::subscribe(
         ai::Executor<std::vector<ai::ncs::Result>>::create([&](auto& results) {
-            static auto peoplenum = results.size();
-
+            static uint32_t peoplenum;
             if (results.size() != peoplenum)
             {
-                std::cout << "\nThread #cam: on CPU " << sched_getcpu() << "\n";
                 peoplenum = results.size();
                 logIf->log(logging::type::info, "executor",
-                           "People I can see is: " + std::to_string(peoplenum));
-                std::string msg;
-                switch (peoplenum)
-                {
-                    case 0:
-                        msg = "Nie widzę człowieków";
-                        break;
-                    case 1:
-                        msg = "Widzę 1 człowieka";
-                        break;
-                    default:
-                        msg = "Widzę " + std::to_string(peoplenum) + " ludzi";
-                        break;
-                }
-                action.update(msg);
+                           "People I can see: " + std::to_string(peoplenum));
+                action.update(peoplenum);
             }
         }));
+
+    face->Executable::subscribe(
+        ai::Executor<std::vector<ai::ncs::Result>>::create([&](auto& results) {
+            static uint32_t facesnum;
+            if (results.size() != facesnum)
+            {
+                facesnum = results.size();
+                logIf->log(logging::type::info, "executor",
+                           "Faces I can see: " + std::to_string(facesnum));
+            }
+        }));
+
     // personDetection.reshape(ie, 240, 320);
     auto camera = camera::Factory::create<camera::csi::Camera>(
         logIf, {args["videoCamNum"], args["videoWidth"], args["videoHeight"],
@@ -194,10 +222,29 @@ int main(int argc, char* argv[])
     //       })});
 
     camera->Processable::subscribe(
-        {2, camera::Processor<cv::Mat>::create([&detector](auto& frame) {
-             // cv::resize(frame, frame,
-             // cv::Size(320, 240));
-             detector->process(frame);
+        {2, camera::Processor<cv::Mat>::create([&ai](auto& frame) {
+             cv::resize(frame, frame, cv::Size(400, 300));
+             std::vector<cv::Mat> out;
+             ai->process(frame, out);
+
+             //  cv::Mat blank(300, 400, CV_8UC3, Scalar(0, 0, 255));
+             const auto& orig = frame;
+             const auto& mod1 = out[0];
+             const auto& mod2 = out[1];
+             const auto& mod3 = frame;
+             cv::Mat h1, h2;
+             cv::hconcat(orig, mod1, h1);
+             cv::hconcat(mod2, mod3, h2);
+             cv::vconcat(h1, h2, frame);
+             //  std::ranges::for_each(std::views::iota(0, (int32_t)out.size()),
+             //                        [&](auto idx) {
+             //                            if (idx % 2)
+             //                                cv::vconcat(frame, out[idx],
+             //                                frame);
+             //                            else
+             //                                cv::hconcat(frame, out[idx],
+             //                                frame);
+             //                        });
          })});
     camera->start();
 

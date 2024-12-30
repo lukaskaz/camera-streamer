@@ -1,19 +1,17 @@
-#include "ai/ncs/detectors/person.hpp"
+#include "ai/ncs/detectors/face.hpp"
 
 #include "ai/ncs/common.hpp"
 #include "ai/ncs/factory.hpp"
 #include "streamer/helpers.hpp"
 
-InferenceEngine::Core ai::ncs::BaseDetection::ie;
-
-namespace ai::ncs::person
+namespace ai::ncs::face
 {
 
 struct Detector::Handler : public BaseDetection
 {
     Handler(Detector* iface, const std::string& model,
             const std::string& devicename) :
-        BaseDetection(model, devicename, "person detector"),
+        BaseDetection(model, devicename, "face detector"),
         iface{iface}, maxProposalCount(0), objectSize(0)
     {
         auto cnn = read(ie);
@@ -169,7 +167,7 @@ struct Detector::Handler : public BaseDetection
                           cv::Point(result.location.x + textwidth,
                                     result.location.y - 20),
                           CV_RGB(0, 0, 255), cv::FILLED);
-            cv::putText(img, "Human: " + std::to_string(confidence) + "%",
+            cv::putText(img, "Face: " + std::to_string(confidence) + "%",
                         cv::Point(result.location.x, result.location.y - 3),
                         cv::FONT_HERSHEY_DUPLEX, 0.6, CV_RGB(255, 255, 255), 1);
         });
@@ -189,4 +187,4 @@ void Detector::process(const cv::Mat& img, std::vector<cv::Mat>& out)
     ai::ncs::ProcessorIf::process(img, out);
 }
 
-} // namespace ai::ncs::person
+} // namespace ai::ncs::face

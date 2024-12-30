@@ -2,7 +2,7 @@
 
 #include "ai/ncs/factory.hpp"
 
-namespace ai::ncs::person
+namespace ai::ncs::face
 {
 
 class Detector : public ProcessorIf
@@ -20,4 +20,4 @@ class Detector : public ProcessorIf
     std::unique_ptr<Handler> handler;
 };
 
-} // namespace ai::ncs::person
+} // namespace ai::ncs::face
