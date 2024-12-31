@@ -18,8 +18,9 @@ class TimeMonitor
 {
   public:
     explicit TimeMonitor(uint32_t);
-    void printtime();
     void printfps();
+    void printtime();
+    void printtime(const std::string&);
 
   private:
     std::chrono::steady_clock::time_point start;

@@ -4,7 +4,7 @@
 #include "ai/ncs/factory.hpp"
 #include "streamer/helpers.hpp"
 
-InferenceEngine::Core ai::ncs::BaseDetection::ie;
+#include <ranges>
 
 namespace ai::ncs::person
 {
@@ -13,12 +13,12 @@ struct Detector::Handler : public BaseDetection
 {
     Handler(Detector* iface, const std::string& model,
             const std::string& devicename) :
-        BaseDetection(model, devicename, "person detector"),
+        BaseDetection(model, devicename, "person"),
         iface{iface}, maxProposalCount(0), objectSize(0)
     {
         auto cnn = read(ie);
         net = ie.LoadNetwork(cnn, device);
-        reqgroup = ReqGroup(net, 3);
+        reqgroup = ReqGroup(net, reqsnum);
     }
 
     void process(const cv::Mat& orig, cv::Mat& mod)
@@ -35,6 +35,7 @@ struct Detector::Handler : public BaseDetection
     float width{};
     float height{};
     double confidtthreshold{0.75};
+    uint32_t reqsnum{3};
 
     void enqueue(const cv::Mat& img) override
     {
@@ -99,7 +100,7 @@ struct Detector::Handler : public BaseDetection
         return network;
     }
 
-    void reshape(const InferenceEngine::Core& ie, size_t rows, size_t cols)
+    void reshape(const Core& ie, size_t rows, size_t cols)
     {
         // --------------------------- Resize network to match image sizes and
         // given batch----------------------
@@ -134,13 +135,14 @@ struct Detector::Handler : public BaseDetection
         if (auto req = reqgroup.getready())
         {
             static streamer::TimeMonitor timecheck(1);
-            timecheck.printtime();
+            timecheck.printtime("PERSINFER");
             results.clear();
             LockedMemory<const void> outputMapped =
                 as<MemoryBlob>((*req)->GetBlob(outputName))->rmap();
             const auto detections = outputMapped.as<float*>();
             std::ranges::for_each(
-                std::views::iota(0, maxProposalCount), [&](auto i) {
+                std::views::iota(0, maxProposalCount),
+                [this, &detections](auto i) {
                     // in case of batch, end of detections if image_id < 0
                     if (detections[i * objectSize + 0] >= 0)
                     {
@@ -162,16 +164,16 @@ struct Detector::Handler : public BaseDetection
     {
         std::ranges::for_each(results, [&img](const auto& result) {
             auto confidence = (int32_t)(result.confidence * 100.);
-            int32_t textwidth = confidence < 100 ? 125 : 145;
-            cv::rectangle(img, result.location, CV_RGB(0, 0, 255), 2);
+            int32_t textwidth = confidence < 100 ? 105 : 115;
+            cv::rectangle(img, result.location, CV_RGB(0, 0, 200), 2);
             cv::rectangle(img,
                           cv::Point(result.location.x - 1, result.location.y),
                           cv::Point(result.location.x + textwidth,
-                                    result.location.y - 20),
-                          CV_RGB(0, 0, 255), cv::FILLED);
+                                    result.location.y - 15),
+                          CV_RGB(0, 0, 200), cv::FILLED);
             cv::putText(img, "Human: " + std::to_string(confidence) + "%",
                         cv::Point(result.location.x, result.location.y - 3),
-                        cv::FONT_HERSHEY_DUPLEX, 0.6, CV_RGB(255, 255, 255), 1);
+                        cv::FONT_HERSHEY_DUPLEX, 0.5, CV_RGB(255, 255, 255), 1);
         });
     }
 };
@@ -182,11 +184,12 @@ Detector::Detector(const std::string& model, const std::string& devicename) :
 
 Detector::~Detector() = default;
 
-void Detector::process(const cv::Mat& img, std::vector<cv::Mat>& out)
+void Detector::process(const cv::Mat& orig, std::vector<cv::Mat>& out)
 {
-    out.push_back(std::move(img.clone()));
-    handler->process(img, out.back());
-    ai::ncs::ProcessorIf::process(img, out);
+    auto mod = orig.clone();
+    handler->process(orig, mod);
+    out.push_back(std::move(mod));
+    ai::ncs::ProcessorIf::process(orig, out);
 }
 
 } // namespace ai::ncs::person

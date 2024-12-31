@@ -64,7 +64,7 @@ class ActionHandler
 int main(int argc, char* argv[])
 {
     std::unordered_map<std::string, uint32_t> args = {
-        {"videoCamNum", 0}, {"videoWidth", 800},  {"videoHeight", 600},
+        {"videoCamNum", 0}, {"videoWidth", 320},  {"videoHeight", 240},
         {"videoFps", 30},   {"videoQuality", 80}, {"streamPort", 8001},
     };
     std::string module{"libstreamer"};
@@ -186,7 +186,8 @@ int main(int argc, char* argv[])
     ai->setnext(person)->setnext(face);
 
     person->Executable::subscribe(
-        ai::Executor<std::vector<ai::ncs::Result>>::create([&](auto& results) {
+        ai::Executor<std::vector<ai::ncs::Result>>::create([&action, logIf](
+                                                               auto& results) {
             static uint32_t peoplenum;
             if (results.size() != peoplenum)
             {
@@ -198,15 +199,16 @@ int main(int argc, char* argv[])
         }));
 
     face->Executable::subscribe(
-        ai::Executor<std::vector<ai::ncs::Result>>::create([&](auto& results) {
-            static uint32_t facesnum;
-            if (results.size() != facesnum)
-            {
-                facesnum = results.size();
-                logIf->log(logging::type::info, "executor",
-                           "Faces I can see: " + std::to_string(facesnum));
-            }
-        }));
+        ai::Executor<std::vector<ai::ncs::Result>>::create(
+            [logIf](auto& results) {
+                static uint32_t facesnum;
+                if (results.size() != facesnum)
+                {
+                    facesnum = results.size();
+                    logIf->log(logging::type::info, "executor",
+                               "Faces I can see: " + std::to_string(facesnum));
+                }
+            }));
 
     // personDetection.reshape(ie, 240, 320);
     auto camera = camera::Factory::create<camera::csi::Camera>(
@@ -223,19 +225,33 @@ int main(int argc, char* argv[])
 
     camera->Processable::subscribe(
         {2, camera::Processor<cv::Mat>::create([&ai](auto& frame) {
-             cv::resize(frame, frame, cv::Size(400, 300));
+             // cv::resize(frame, frame, cv::Size(400, 300));
+             static const cv::Mat blank{240, 320, CV_8UC3,
+                                        CV_RGB(255, 255, 255)};
              std::vector<cv::Mat> out;
              ai->process(frame, out);
-
-             //  cv::Mat blank(300, 400, CV_8UC3, Scalar(0, 0, 255));
-             const auto& orig = frame;
-             const auto& mod1 = out[0];
-             const auto& mod2 = out[1];
-             const auto& mod3 = frame;
-             cv::Mat h1, h2;
-             cv::hconcat(orig, mod1, h1);
-             cv::hconcat(mod2, mod3, h2);
-             cv::vconcat(h1, h2, frame);
+             switch (out.size())
+             {
+                 case 0:
+                     break;
+                 case 1:
+                     cv::hconcat(frame, out[0], frame);
+                     break;
+                 case 2:
+                     cv::hconcat(frame, out[0], out[0]);
+                     cv::hconcat(out[1], blank, out[1]);
+                     cv::vconcat(out[0], out[1], frame);
+                     break;
+                 case 3:
+                     cv::hconcat(frame, out[0], out[0]);
+                     cv::hconcat(out[1], out[2], out[2]);
+                     cv::vconcat(out[0], out[2], frame);
+                     break;
+                 default:
+                     throw std::runtime_error("Images array size (" +
+                                              std::to_string(out.size()) +
+                                              ") not supported ");
+             }
              //  std::ranges::for_each(std::views::iota(0, (int32_t)out.size()),
              //                        [&](auto idx) {
              //                            if (idx % 2)
@@ -250,8 +266,8 @@ int main(int argc, char* argv[])
 
     server
         .get("/img",
-             [quality = args["videoQuality"], camera, logIf,
-              &module](auto, auto res) {
+             [&module, quality = args["videoQuality"], camera,
+              logIf](auto, auto res) {
                  res.headers.push_back("Connection: close");
                  res.headers.push_back("Max-Age: 0");
                  res.headers.push_back("Expires: 0");

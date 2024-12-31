@@ -3,10 +3,7 @@
 #include <inference_engine.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include <algorithm>
-#include <iostream>
 #include <queue>
-#include <ranges>
 
 namespace ai::ncs
 {
@@ -14,10 +11,10 @@ namespace ai::ncs
 using namespace InferenceEngine;
 
 template <typename T>
-void matU8ToBlob(const cv::Mat& orig_image,
-                 const InferenceEngine::Blob::Ptr& blob, int batchIndex = 0)
+void matU8ToBlob(const cv::Mat& orig_image, const Blob::Ptr& blob,
+                 int batchIndex = 0)
 {
-    InferenceEngine::SizeVector blobSize = blob->getTensorDesc().getDims();
+    SizeVector blobSize = blob->getTensorDesc().getDims();
     const size_t width = blobSize[3];
     const size_t height = blobSize[2];
     const size_t channels = blobSize[1];
@@ -26,8 +23,7 @@ void matU8ToBlob(const cv::Mat& orig_image,
         throw std::runtime_error(
             "The number of channels for net input and image must match");
     }
-    InferenceEngine::LockedMemory<void> blobMapped =
-        InferenceEngine::as<InferenceEngine::MemoryBlob>(blob)->wmap();
+    LockedMemory<void> blobMapped = as<MemoryBlob>(blob)->wmap();
     T* blob_data = blobMapped.as<T*>();
 
     cv::Mat resized_image(orig_image);
@@ -72,12 +68,19 @@ void matU8ToBlob(const cv::Mat& orig_image,
 
 struct BaseDetection
 {
+  public:
+    BaseDetection(const std::string&, const std::string&, const std::string&);
+    virtual ~BaseDetection();
+    virtual CNNNetwork read(const Core& ie) = 0;
+    virtual void enqueue(const cv::Mat&);
+    ExecutableNetwork* operator->();
+
+  protected:
     static Core ie;
     ExecutableNetwork net;
     const std::string& model;
     const std::string& device;
     std::string topoName;
-    Blob::Ptr inputBlob;
     std::string inputName;
     std::string outputName;
     const size_t maxBatch;
@@ -90,42 +93,12 @@ struct BaseDetection
         class Req
         {
           public:
-            Req(ReqGroup* handler) : queue{handler->pendingreqs}
-            {
-                if (!handler->idlereqs.empty())
-                {
-                    ptr = handler->idlereqs.front();
-                    handler->idlereqs.pop();
-                }
-            }
+            Req(ReqGroup*);
+            Req(ReqGroup*, InferRequest::WaitMode);
+            ~Req();
 
-            Req(ReqGroup* handler, const auto query) : queue{handler->idlereqs}
-            {
-                if (!handler->pendingreqs.empty())
-                {
-                    auto ptr = handler->pendingreqs.front();
-                    if (ptr->Wait(query) == StatusCode::OK)
-                    {
-                        handler->pendingreqs.pop();
-                        this->ptr = ptr;
-                    }
-                }
-            }
-            ~Req()
-            {
-                if (isvalid())
-                    queue.push(ptr);
-            }
-
-            bool isvalid() const
-            {
-                return ptr != nullptr;
-            }
-
-            InferRequest::Ptr operator->()
-            {
-                return ptr;
-            }
+            InferRequest::Ptr operator->();
+            bool isvalid() const;
 
           private:
             std::queue<InferRequest::Ptr>& queue;
@@ -133,57 +106,16 @@ struct BaseDetection
         };
 
       public:
-        explicit ReqGroup(ExecutableNetwork& net, size_t maxRequests)
-        {
-            uint32_t reqnum{1};
-            std::cout << "Async requests in use: " << maxRequests << std::endl;
-            std::ranges::for_each(
-                std::views::iota(0, (int)maxRequests), [&, this](int) {
-                    std::cout << "Deploying request #" << reqnum++ << std::endl;
-                    idlereqs.push(net.CreateInferRequestPtr());
-                });
-        }
-        ReqGroup() = default;
-        ~ReqGroup() = default;
+        ReqGroup();
+        explicit ReqGroup(ExecutableNetwork&, int32_t);
+        ~ReqGroup();
 
-        std::shared_ptr<Req> getidle()
-        {
-            auto req = std::make_shared<Req>(this);
-            return req->isvalid() ? req : nullptr;
-        }
-
-        std::shared_ptr<Req> getready()
-        {
-            auto req = std::make_shared<Req>(
-                this, InferRequest::WaitMode::STATUS_ONLY);
-            return req->isvalid() ? req : nullptr;
-        }
+        std::shared_ptr<Req> getidle();
+        std::shared_ptr<Req> getready();
     } reqgroup;
 
-    BaseDetection(const std::string& model, const std::string& device,
-                  const std::string& topoName) :
-        model(model),
-        device(device), topoName(topoName), maxBatch(1)
-
-    {}
-
-    virtual ~BaseDetection() = default;
-
-    ExecutableNetwork* operator->()
-    {
-        return &net;
-    }
-    virtual CNNNetwork read(const Core& ie) = 0;
-
-    virtual void enqueue(const cv::Mat& img)
-    {
-        if (auto req = reqgroup.getidle())
-        {
-            inputBlob = (*req)->GetBlob(inputName);
-            matU8ToBlob<uint8_t>(img, inputBlob);
-            (*req)->StartAsync();
-        }
-    }
+  private:
+    Blob::Ptr inputBlob;
 };
 
 } // namespace ai::ncs

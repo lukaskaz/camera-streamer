@@ -49,13 +49,33 @@ void TimeMonitor::printtime()
             .count();
     start = current;
 
-    std::cout << "\r";
-    for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
-        std::cout << "\t\t";
-    std::cout << "          \r";
-    for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
-        std::cout << "\t\t";
-    std::cout << "[TIM_" << clientnum << ": " << diffms << "] " << std::flush;
+    // std::cout << "\r";
+    // for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "          \r";
+    // for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "[TIM_" << clientnum << ": " << diffms << "] " <<
+    // std::flush;
+    std::cout << "[TIM_" << clientnum << ": " << diffms << "]\n";
+}
+
+void TimeMonitor::printtime(const std::string& name)
+{
+    auto current = std::chrono::steady_clock::now();
+    uint32_t diffms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(current - start)
+            .count();
+    start = current;
+
+    // std::cout << "\r";
+    // for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "          \r";
+    // for (uint32_t tabsnum = 0; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "[TIM_" << name << ": " << diffms << "] " << std::flush;
+    std::cout << "[TIM_" << name << ": " << diffms << "]\n";
 }
 
 void TimeMonitor::printfps()
@@ -67,13 +87,14 @@ void TimeMonitor::printfps()
     start = current;
     uint32_t fps = diffms == 0 ? 0 : 1000 / diffms;
 
-    std::cout << "\r";
-    for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
-        std::cout << "\t\t";
-    std::cout << "          \r";
-    for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
-        std::cout << "\t\t";
-    std::cout << "[FPS_" << clientnum << ": " << fps << "] " << std::flush;
+    // std::cout << "\r";
+    // for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "          \r";
+    // for (uint32_t tabsnum = 1; tabsnum < clientnum; tabsnum++)
+    //     std::cout << "\t\t";
+    // std::cout << "[FPS_" << clientnum << ": " << fps << "] " << std::flush;
+    std::cout << "[FPS_" << clientnum << ": " << fps << "]\n";
 }
 
 } // namespace streamer
