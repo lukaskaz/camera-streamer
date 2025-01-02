@@ -15,15 +15,15 @@ template <typename T>
 class Executor
 {
   public:
-    using Func = std::function<void(const T&)>;
+    using Func = std::function<void(bool, const T&)>;
     static std::shared_ptr<Executor<T>> create(const Func& func)
     {
         return std::shared_ptr<Executor<T>>(new Executor<T>(func));
     }
 
-    void operator()(const T& param)
+    void operator()(bool latest, const T& param)
     {
-        func(param);
+        func(latest, param);
     }
 
   private:
@@ -36,11 +36,11 @@ template <typename T>
 class Executable
 {
   public:
-    void execute(const T& param)
+    void execute(bool latest, const T& param)
     {
         cleanup();
-        std::ranges::for_each(executors,
-                              [&param](auto exec) { (*exec)(param); });
+        std::ranges::for_each(
+            executors, [latest, &param](auto exec) { (*exec)(latest, param); });
     }
 
     void subscribe(std::shared_ptr<Executor<T>> exec)

@@ -1,8 +1,7 @@
 #include "ai/ncs/detectors/person.hpp"
 
-#include "ai/ncs/common.hpp"
+#include "ai/ncs/detectors/common.hpp"
 #include "ai/ncs/factory.hpp"
-#include "streamer/helpers.hpp"
 
 #include <ranges>
 
@@ -23,9 +22,9 @@ struct Detector::Handler : public BaseDetection
 
     void process(const cv::Mat& orig, cv::Mat& mod)
     {
-        const auto& results = getResults(orig);
+        const auto& [latest, results] = getResults(orig);
         processFrame(mod, results);
-        iface->execute(results);
+        iface->execute(latest, results);
     }
 
   private:
@@ -129,13 +128,12 @@ struct Detector::Handler : public BaseDetection
         return cv::Rect{x, y, w, h};
     }
 
-    std::vector<Result> getResults(const cv::Mat& img)
+    std::pair<bool, std::vector<Result>> getResults(const cv::Mat& img)
     {
         static std::vector<Result> results;
+        bool latest{false};
         if (auto req = reqgroup.getready())
         {
-            static streamer::TimeMonitor timecheck(1);
-            timecheck.printtime("PERSINFER");
             results.clear();
             LockedMemory<const void> outputMapped =
                 as<MemoryBlob>((*req)->GetBlob(outputName))->rmap();
@@ -155,9 +153,10 @@ struct Detector::Handler : public BaseDetection
                         }
                     }
                 });
+            latest = true;
         }
         enqueue(img);
-        return results;
+        return {latest, results};
     }
 
     void processFrame(cv::Mat& img, const std::vector<Result>& results)

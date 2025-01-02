@@ -17,14 +17,13 @@ std::string getIPAddress(const std::string&);
 class TimeMonitor
 {
   public:
-    explicit TimeMonitor(uint32_t);
-    void printfps();
-    void printtime();
-    void printtime(const std::string&);
+    explicit TimeMonitor();
+    void print(const std::string& = "");
 
   private:
+    static uint32_t instance;
+    uint32_t clientnum;
     std::chrono::steady_clock::time_point start;
-    uint32_t clientnum{};
 };
 
 } // namespace streamer

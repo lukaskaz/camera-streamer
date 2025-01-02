@@ -19,12 +19,14 @@ file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 add_dependencies(${PROJECT_NAME} libcamera)
+add_dependencies(${PROJECT_NAME} libwebserver)
 add_dependencies(${PROJECT_NAME} liblogger)
 add_dependencies(${PROJECT_NAME} libtts)
 add_dependencies(${PROJECT_NAME} libshellcmd)
 
 target_link_libraries(${PROJECT_NAME}
     camera
+    webserver
     logger
     tts
     shellcmd

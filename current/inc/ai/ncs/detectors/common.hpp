@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ai/ncs/helpers.hpp"
+
 #include <inference_engine.hpp>
 #include <opencv2/imgproc.hpp>
 

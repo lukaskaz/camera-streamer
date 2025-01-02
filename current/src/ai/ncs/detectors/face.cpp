@@ -1,8 +1,7 @@
 #include "ai/ncs/detectors/face.hpp"
 
-#include "ai/ncs/common.hpp"
+#include "ai/ncs/detectors/common.hpp"
 #include "ai/ncs/factory.hpp"
-#include "streamer/helpers.hpp"
 
 #include <ranges>
 
@@ -23,9 +22,9 @@ struct Detector::Handler : public BaseDetection
 
     void process(const cv::Mat& orig, cv::Mat& mod)
     {
-        const auto& results = getResults(orig);
+        const auto& [latest, results] = getResults(orig);
         processFrame(mod, results);
-        iface->execute(results);
+        iface->execute(latest, results);
     }
 
   private:
@@ -54,25 +53,25 @@ struct Detector::Handler : public BaseDetection
         network.setBatchSize(maxBatch);
         // -----------------------------------------------------------------------------------------------------
 
-        /** SSD-based network should have one input and one output **/
         // ---------------------------Check inputs
-        // ------------------------------------------------------
-        std::cout << "Checking " << topoName << " inputs" << std::endl;
+        // -------------------------------------------------------------
+        std::cout << "Checking Face Detection network inputs" << std::endl;
         InputsDataMap inputInfo(network.getInputsInfo());
         if (inputInfo.size() != 1)
         {
-            throw std::logic_error(topoName +
-                                   " network should have only one input");
+            throw std::logic_error(
+                "Face Detection network should have only one input");
         }
-        InputInfo::Ptr& inputInfoFirst = inputInfo.begin()->second;
+        InputInfo::Ptr inputInfoFirst = inputInfo.begin()->second;
         inputInfoFirst->setPrecision(Precision::U8);
-        inputInfoFirst->getInputData()->setLayout(Layout::NCHW);
+
+        const SizeVector inputDims = inputInfoFirst->getTensorDesc().getDims();
         inputName = inputInfo.begin()->first;
         // -----------------------------------------------------------------------------------------------------
 
         // ---------------------------Check outputs
-        // ------------------------------------------------------
-        std::cout << "Checking " << topoName << " outputs" << std::endl;
+        // ------------------------------------------------------------
+        std::cout << "Checking Face Detection network outputs" << std::endl;
         OutputsDataMap outputInfo(network.getOutputsInfo());
         if (outputInfo.size() != 1)
         {
@@ -80,22 +79,24 @@ struct Detector::Handler : public BaseDetection
                                    " network should have only one output");
         }
         DataPtr& _output = outputInfo.begin()->second;
-        const SizeVector outputDims = _output->getTensorDesc().getDims();
         outputName = outputInfo.begin()->first;
+        const SizeVector outputDims = _output->getTensorDesc().getDims();
         maxProposalCount = outputDims[2];
         objectSize = outputDims[3];
         if (objectSize != 7)
         {
-            throw std::logic_error("Output should have 7 as a last dimension");
+            throw std::logic_error("Face Detection network output layer "
+                                   "should have 7 as a last dimension");
         }
         if (outputDims.size() != 4)
         {
-            throw std::logic_error("Incorrect output dimensions for SSD");
+            throw std::logic_error("Face Detection network output should "
+                                   "have 4 dimentions, but had " +
+                                   std::to_string(outputDims.size()));
         }
         _output->setPrecision(Precision::FP32);
-        _output->setLayout(Layout::NCHW);
 
-        std::cout << "Loading " << topoName << " model to the " << device
+        std::cout << "Loading Face Detection model to the " << device
                   << " device" << std::endl;
         return network;
     }
@@ -129,13 +130,12 @@ struct Detector::Handler : public BaseDetection
         return cv::Rect{x, y, w, h};
     }
 
-    std::vector<Result> getResults(const cv::Mat& img)
+    std::pair<bool, std::vector<Result>> getResults(const cv::Mat& img)
     {
         static std::vector<Result> results;
+        bool latest{false};
         if (auto req = reqgroup.getready())
         {
-            static streamer::TimeMonitor timecheck(1);
-            timecheck.printtime("FACEINFER");
             results.clear();
             LockedMemory<const void> outputMapped =
                 as<MemoryBlob>((*req)->GetBlob(outputName))->rmap();
@@ -155,9 +155,10 @@ struct Detector::Handler : public BaseDetection
                         }
                     }
                 });
+            latest = true;
         }
         enqueue(img);
-        return results;
+        return {latest, results};
     }
 
     void processFrame(cv::Mat& img, const std::vector<Result>& results)

@@ -1,11 +1,11 @@
-#include "server/server.h"
-
 #include "ai/ncs/detectors/face.hpp"
 #include "ai/ncs/detectors/person.hpp"
 #include "camera/interfaces/rpi5/csi.hpp"
 #include "log/interfaces/console.hpp"
+#include "log/interfaces/storage.hpp"
 #include "streamer/helpers.hpp"
 #include "tts/interfaces/googlecloud.hpp"
+#include "webserver/interfaces/http.hpp"
 
 #include <sched.h>
 
@@ -19,6 +19,8 @@
 #include <iostream>
 #include <ranges>
 #include <sstream>
+
+namespace po = boost::program_options;
 
 template <typename T>
 class ActionHandler
@@ -68,26 +70,20 @@ int main(int argc, char* argv[])
         {"videoFps", 30},   {"videoQuality", 80}, {"streamPort", 8001},
     };
     std::string module{"libstreamer"};
-    auto loglvl = logging::type::info;
-    auto logIf = logging::LogFactory::create<logging::console::Log>(loglvl);
+    auto logIf =
+        logging::LogFactory::create<logging::storage::Log>(logging::type::info);
 
-    boost::program_options::options_description desc("Allowed options");
+    po::options_description desc("Allowed options");
     desc.add_options()("help,h", "produce help message")(
-        "logs,l", boost::program_options::value<uint32_t>(),
-        "enable debug logs")("port,p",
-                             boost::program_options::value<uint32_t>(),
-                             "set streaming port")(
-        "mp", boost::program_options::value<std::string>(),
-        "person detection model xml file path")(
-        "mf", boost::program_options::value<std::string>(),
-        "face detection model xml file path")(
-        "device,d", boost::program_options::value<std::string>(),
-        "device type")("lccv,l", "use opencv support for new libcamera stack");
+        "logs,l", po::value<uint32_t>(), "enable debug logs")(
+        "port,p", po::value<uint32_t>(), "set streaming port")(
+        "models,m", po::value<std::vector<std::string>>()->multitoken(),
+        "xml model paths")("device,d", po::value<std::string>(), "device type")(
+        "lccv,l", "use opencv support for new libcamera stack");
 
-    boost::program_options::variables_map vm;
-    boost::program_options::store(
-        boost::program_options::parse_command_line(argc, argv, desc), vm);
-    boost::program_options::notify(vm);
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
 
     if (vm.contains("help"))
     {
@@ -110,20 +106,16 @@ int main(int argc, char* argv[])
         logIf->log(logging::type::debug, module, "Set streaming port: " + port);
     }
 
-    std::string mp;
-    if (vm.contains("mp"))
+    std::vector<std::string> models;
+    if (vm.contains("models"))
     {
-        mp = vm.at("mp").as<std::string>();
-        logIf->log(logging::type::debug, module,
-                   "path of xml person detection model file: " + mp);
-    }
-
-    std::string mf;
-    if (vm.contains("mf"))
-    {
-        mf = vm.at("mf").as<std::string>();
-        logIf->log(logging::type::debug, module,
-                   "path of xml face detection model file: " + mf);
+        models = vm.at("models").as<std::vector<std::string>>();
+        std::ranges::for_each(models, [&logIf, &module](const auto& model) {
+            static uint32_t cnt;
+            logIf->log(logging::type::info, module,
+                       "path of " + std::to_string(++cnt) +
+                           " xml model file: " + model);
+        });
     }
 
     std::string device;
@@ -181,27 +173,37 @@ int main(int argc, char* argv[])
 
     auto ai = std::make_shared<ai::ncs::ProcessorIf>();
     auto person =
-        ai::ncs::Factory::create<ai::ncs::person::Detector>(mp, device);
-    auto face = ai::ncs::Factory::create<ai::ncs::face::Detector>(mf, device);
+        ai::ncs::Factory::create<ai::ncs::person::Detector>(models[0], device);
+    auto face =
+        ai::ncs::Factory::create<ai::ncs::face::Detector>(models[1], device);
     ai->setnext(person)->setnext(face);
 
     person->Executable::subscribe(
-        ai::Executor<std::vector<ai::ncs::Result>>::create([&action, logIf](
-                                                               auto& results) {
-            static uint32_t peoplenum;
-            if (results.size() != peoplenum)
-            {
-                peoplenum = results.size();
-                logIf->log(logging::type::info, "executor",
-                           "People I can see: " + std::to_string(peoplenum));
-                action.update(peoplenum);
-            }
-        }));
+        ai::Executor<std::vector<ai::ncs::Result>>::create(
+            [&action, logIf](bool latest, auto& results) {
+                static streamer::TimeMonitor monitor;
+                static uint32_t peoplenum;
+
+                if (latest)
+                    monitor.print("PERSINFER");
+                if (results.size() != peoplenum)
+                {
+                    peoplenum = results.size();
+                    logIf->log(logging::type::info, "executor",
+                               "People I can see: " +
+                                   std::to_string(peoplenum));
+                    action.update(peoplenum);
+                }
+            }));
 
     face->Executable::subscribe(
         ai::Executor<std::vector<ai::ncs::Result>>::create(
-            [logIf](auto& results) {
+            [logIf](bool latest, auto& results) {
+                static streamer::TimeMonitor monitor;
                 static uint32_t facesnum;
+
+                if (latest)
+                    monitor.print("FACEINFER");
                 if (results.size() != facesnum)
                 {
                     facesnum = results.size();
@@ -282,8 +284,7 @@ int main(int argc, char* argv[])
                      return;
                  }
 
-                 static uint32_t clinetnum{1};
-                 auto monitor{streamer::TimeMonitor{clinetnum++}};
+                 streamer::TimeMonitor monitor;
                  std::stop_source state;
                  auto running = state.get_token();
                  auto streaming =
@@ -310,7 +311,7 @@ int main(int argc, char* argv[])
 
                          logIf->log(logging::type::debug, module,
                                     "New frame was streamed");
-                         monitor.printfps();
+                         monitor.print("WEBSERVER");
                      });
 
                  camera->Observable::subscribe(streaming);
@@ -324,19 +325,20 @@ int main(int argc, char* argv[])
                      usleep(100 * 1000);
                  }
              })
-        .get("/", [ip, port, width = args["videoWidth"],
-                   height = args["videoHeight"]](auto, auto res) {
-            res >> "<html>"
-                   "    <body>"
-                   "        <h1>Camera streaming</h1>"
-                   "        <img src='http://" +
-                       ip + ":" + std::to_string(port) + "/img'/ width='" +
-                       std::to_string(width) + "' height='" +
-                       std::to_string(height) +
-                       "'>"
-                       "    </body>"
-                       "</html>";
-        });
+        .get("/",
+             [ip, port = std::to_string(port),
+              width = std::to_string(args["videoWidth"]),
+              height = std::to_string(args["videoHeight"])](auto, auto res) {
+                 res >> "<html>"
+                        "    <body>"
+                        "        <h1>Camera streaming</h1>"
+                        "        <img src='http://" +
+                            ip + ":" + port + "/img'/ width='" + width +
+                            "' height='" + height +
+                            "'>"
+                            "    </body>"
+                            "</html>";
+             });
 
     try
     {

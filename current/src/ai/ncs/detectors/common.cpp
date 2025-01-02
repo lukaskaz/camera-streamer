@@ -1,4 +1,4 @@
-#include "ai/ncs/common.hpp"
+#include "ai/ncs/detectors/common.hpp"
 
 #include <algorithm>
 #include <iostream>
