@@ -1,0 +1,5 @@
+./camera-streamer -m ./person-detection-retail-0013.xml -d MYRIAD
+
+./camera-streamer -m ../models/person-detection-retail-0013/FP16/person-detection-retail-0013.xml ../models/face-detection-retail-0004/FP16/face-detection-retail-0004.xml -d MYRIAD
+
+

@@ -15,14 +15,23 @@ if(RUN_TESTS)
 endif()
 
 include_directories(inc)
-file(GLOB SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+add_dependencies(${PROJECT_NAME} libcamera)
+add_dependencies(${PROJECT_NAME} libwebserver)
+add_dependencies(${PROJECT_NAME} liblogger)
+add_dependencies(${PROJECT_NAME} libtts)
+add_dependencies(${PROJECT_NAME} libshellcmd)
 
-add_dependencies(${PROJECT_NAME} liblccv)
 target_link_libraries(${PROJECT_NAME}
-    lccv
+    camera
+    webserver
+    logger
+    tts
+    shellcmd
     Threads::Threads
     ${Boost_LIBRARIES}
     ${OpenCV_LIBS}
+    ${InferenceEngine_LIBRARIES}
 )
